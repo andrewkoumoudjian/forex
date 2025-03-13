@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forex Market Simulator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        .currency-factors {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .plots-container img {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Foreign Exchange Market Simulator</h1>
+        
+        <!-- Initial setup form -->
+        <div id="setup-form" class="card p-3 mb-4">
+            <h3>Setup Simulation</h3>
+            <div class="form-group mb-3">
+                <label for="num-rounds">Number of Rounds:</label>
+                <input type="number" id="num-rounds" class="form-control" value="10" min="1" max="50">
+            </div>
+            <button id="start-btn" class="btn btn-primary">Start Simulation</button>
+        </div>
+        
+        <!-- Simulation interface -->
+        <div id="simulation-container" class="hidden">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white d-flex justify-content-between">
+                    <h3 class="m-0">Round: <span id="current-round">0</span> of <span id="max-rounds">10</span></h3>
+                    <h3 class="m-0">Exchange Rate Table</h3>
+                </div>
+                <div class="card-body">
+                    <div id="rates-table-container"></div>
+                </div>
+            </div>
+            
+            <!-- Factor inputs -->
+            <div id="factor-inputs" class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h3 class="m-0">Economic Factors for Next Round</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">Enter values between -0.1 (very negative) and 0.1 (very positive)</p>
+                    <div id="currency-factors-container" class="row"></div>
+                    <button id="submit-factors" class="btn btn-success mt-3">Submit Factors & Advance Round</button>
+                </div>
+            </div>
+            
+            <!-- Visualization section -->
+            <div id="visualizations" class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h3 class="m-0">Market Visualizations</h3>
+                </div>
+                <div class="card-body">
+                    <div class="plots-container row">
+                        <div class="col-md-6">
+                            <h4>Currency Strength</h4>
+                            <div id="strength-plot-container"></div>
+                        </div>
+                        <div class="col-md-6">
+                            <h4>Exchange Rate Heatmap</h4>
+                            <div id="heatmap-plot-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results section -->
+            <div id="results-section" class="hidden card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h3 class="m-0">Simulation Complete</h3>
+                </div>
+                <div class="card-body">
+                    <p>The forex market simulation has concluded.</p>
+                    <button id="restart-btn" class="btn btn-primary">Start New Simulation</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let simulationId = null;
+        let currencies = [];
+        let factors = [];
+        
+        $(document).ready(function() {
+            // Start simulation button
+            $('#start-btn').click(function() {
+                const numRounds = $('#num-rounds').val();
+                
+                $.ajax({
+                    url: '/start',
+                    method: 'POST',
+                    data: {
+                        num_rounds: numRounds
+                    },
+                    success: function(response) {
+                        simulationId = response.simulation_id;
+                        currencies = response.currencies;
+                        factors = response.factors;
+                        
+                        // Update UI
+                        $('#setup-form').addClass('hidden');
+                        $('#simulation-container').removeClass('hidden');
+                        $('#current-round').text(response.current_round);
+                        $('#max-rounds').text(response.max_rounds);
+                        $('#rates-table-container').html(response.rates_table);
+                        
+                        // Generate factor input fields
+                        generateFactorInputs();
+                    }
+                });
+            });
+            
+            // Submit factors button
+            $('#submit-factors').click(function() {
+                const factorInputs = {};
+                
+                // Collect factor inputs for each currency
+                currencies.forEach(currency => {
+                    factorInputs[currency] = {};
+                    
+                    factors.forEach(factor => {
+                        const value = parseFloat($(`#${currency}-${factor}`).val());
+                        factorInputs[currency][factor] = value;
+                    });
+                });
+                
+                // Submit to server
+                $.ajax({
+                    url: '/update_round',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        simulation_id: simulationId,
+                        factors: factorInputs
+                    }),
+                    success: function(response) {
+                        // Update UI
+                        $('#current-round').text(response.current_round);
+                        $('#rates-table-container').html(response.rates_table);
+                        
+                        // Update plots
+                        $('#strength-plot-container').html(`<img src="data:image/png;base64,${response.strength_plot}" alt="Currency Strength Plot">`);
+                        $('#heatmap-plot-container').html(`<img src="data:image/png;base64,${response.heatmap_plot}" alt="Exchange Rate Heatmap">`);
+                        
+                        // Check if simulation is complete
+                        if (response.is_complete) {
+                            $('#factor-inputs').addClass('hidden');
+                            $('#results-section').removeClass('hidden');
+                        }
+                    }
+                });
+            });
+            
+            // Restart button
+            $('#restart-btn').click(function() {
+                // Reset UI
+                $('#simulation-container').addClass('hidden');
+                $('#setup-form').removeClass('hidden');
+                $('#factor-inputs').removeClass('hidden');
+                $('#results-section').addClass('hidden');
+                $('#strength-plot-container').html('');
+                $('#heatmap-plot-container').html('');
+            });
+            
+            function generateFactorInputs() {
+                const container = $('#currency-factors-container');
+                container.empty();
+                
+                currencies.forEach(currency => {
+                    const currencyDiv = $(`<div class="col-md-4 currency-factors">
+                        <h4>${currency}</h4>
+                        <div id="${currency}-factors"></div>
+                    </div>`);
+                    
+                    const factorsList = $(`#${currency}-factors`);
+                    
+                    factors.forEach(factor => {
+                        const factorInput = `
+                            <div class="form-group mb-2">
+                                <label for="${currency}-${factor}">${factor.replace('_', ' ')}:</label>
+                                <input type="number" id="${currency}-${factor}" class="form-control" 
+                                       value="0" min="-0.1" max="0.1" step="0.01">
+                            </div>
+                        `;
+                        factorsList.append(factorInput);
+                    });
+                    
+                    container.append(currencyDiv);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
